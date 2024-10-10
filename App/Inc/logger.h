@@ -17,8 +17,6 @@
 
 #include "usbd_cdc_if.h"
 
-#if defined(__cplusplus)
-
 #define LOGGER			Logger::Instance()
 
 #define ENABLE_LOGGING
@@ -27,8 +25,7 @@
 #define LOG_TO_UART
 //#define LOG_TO_PRINTF	/* Untested!! */
 
-#define LOGF(...)		LOGGER.LogF(this, __VA_ARGS__)
-
+#if defined(__cplusplus)
 /**
  * @class	Logger type
  * @brief	Handles storing/flushing log messages
@@ -48,7 +45,7 @@ public:
 	static constexpr size_t s_MaxModuleNameLength = 8;
 
 private:
-	char m_ModuleName[s_MaxModuleNameLength + 2];
+	char m_ModuleName[s_MaxModuleNameLength + 1];
 };
 
 /**
@@ -93,13 +90,12 @@ private:
 	static constexpr size_t s_MaxMessageLength = 64;
 	static constexpr size_t s_QueueSize = 8;
 
+	static constexpr char s_NewLine[] = "\r\n";
+
 	// Queue/queue position pointers
-	char m_Buff[2][s_QueueSize][s_MaxMessageLength];
+	char m_Buff[2][s_QueueSize][s_MaxMessageLength + 2];
 	uint8_t m_CurrentBuff;
 	uint8_t m_BuffPos;
-
-	// Transmitting flag for non-blocking writes
-	bool m_Transmitting;
 
 	// UART driver handle
 	UART_HandleTypeDef *m_UART;
@@ -114,11 +110,6 @@ private:
 #if defined(__cplusplus)
 extern "C" {
 #endif
-
-/**
- * @brief UART Tx complete interrupt callback
- */
-void Logger_TransmitCompleteInterruptCallback(void);
 
 /**
  * @brief Logger FreeRTOS task

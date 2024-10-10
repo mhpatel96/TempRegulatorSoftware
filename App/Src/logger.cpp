@@ -14,27 +14,19 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-extern UART_HandleTypeDef huart2;
+extern UART_HandleTypeDef huart1;
 
 LoggerModule::LoggerModule(const char * ModuleName)
 {
 	strncpy(m_ModuleName, ModuleName, s_MaxModuleNameLength);
 
-	m_ModuleName[s_MaxModuleNameLength + 1] = 0;
-	m_ModuleName[s_MaxModuleNameLength] = ':';
+	m_ModuleName[s_MaxModuleNameLength] = 0;
 
-	size_t ModuleNameLength = strlen(ModuleName);
-	if (ModuleNameLength < s_MaxModuleNameLength)
+	size_t Idx = strlen(ModuleName);
+	m_ModuleName[Idx++] = ':';
+	while (Idx < s_MaxModuleNameLength)
 	{
-		ModuleNameLength = s_MaxModuleNameLength - ModuleNameLength;
-		uint8_t Idx;
-
-		while (ModuleNameLength)
-		{
-			Idx = s_MaxModuleNameLength - ModuleNameLength;
-			m_ModuleName[Idx] = ' ';
-			ModuleNameLength--;
-		}
+		m_ModuleName[Idx++] = ' ';
 	}
 
 	asm("NOP");
@@ -58,8 +50,7 @@ Logger& Logger::Instance(void)
 Logger::Logger(void) :
 	m_CurrentBuff(0),
 	m_BuffPos(0),
-	m_Transmitting(false),
-	m_UART(&huart2)
+	m_UART(&huart1)
 {
 }
 
@@ -77,8 +68,10 @@ bool Logger::LogF(const LoggerModule *const pModule, const char *Format, ...)
 
 		va_list Args;
 		va_start(Args, Format);
-		vsnprintf(&m_Buff[m_CurrentBuff][m_BuffPos][LoggerModule::s_MaxModuleNameLength + 1], s_MaxMessageLength, Format, Args);
+		vsnprintf(&m_Buff[m_CurrentBuff][m_BuffPos][LoggerModule::s_MaxModuleNameLength], s_MaxMessageLength, Format, Args);
 		va_end(Args);
+
+		strcat(&m_Buff[m_CurrentBuff][m_BuffPos][0], s_NewLine);
 
 		m_BuffPos++;
 	}
@@ -102,34 +95,18 @@ void Logger::Flush(void)
 		CDC_Transmit_FS((uint8_t*)&m_Buff[BuffToFlush][Idx][0], strlen(&m_Buff[BuffToFlush][Idx][0]));
 		m_Transmitting = true;
 #elif defined(LOG_TO_UART)
-		HAL_UART_Transmit_IT(m_UART, (uint8_t*)&m_Buff[BuffToFlush][Idx][0], strlen(&m_Buff[BuffToFlush][Idx][0]));
-		m_Transmitting = true;
-#elif defined(LOG_TO_PRINTF)
-		printf(&m_Buff[BuffToFlush][Idx][0]);
-#endif
-
-#if defined(LOG_TO_USB) || defined(LOG_TO_UART)
-		// Wait for Tx complete interrupt - only applies to non-blocking writes
-		while (m_Transmitting == true)
+		while (HAL_UART_Transmit_IT(m_UART, (uint8_t*)&m_Buff[BuffToFlush][Idx][0], strlen(&m_Buff[BuffToFlush][Idx][0])) != HAL_OK)
 		{
 			taskYIELD();
 		}
+#elif defined(LOG_TO_PRINTF)
+		printf(&m_Buff[BuffToFlush][Idx][0]);
 #endif
 
 		Idx++;
 	}
 
 	m_BuffPos = 0;
-}
-
-void Logger::TransmitComplete(void)
-{
-	m_Transmitting = false;
-}
-
-void Logger_TransmitCompleteInterruptCallback(void)
-{
-	LOGGER.TransmitComplete();
 }
 
 void Logger_Task(void *pvParamaters)

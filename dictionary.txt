@@ -3,3 +3,12 @@ destructors
 tx
 param
 wanna
+init
+micro
+retval
+int
+destructor
+huart
+kushal
+mutexes
+htim

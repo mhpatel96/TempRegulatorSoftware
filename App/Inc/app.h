@@ -2,17 +2,18 @@
 #if !defined(APP_APP_H__)
 #define APP_APP_H__
 
-#ifdef __cplusplus
+#if defined(__cplusplus)
 extern "C" {
-#endif
+#endif /* __cplusplus */
+
 /**
  * @brief C++ Application entry point
  * @return Return code
  */
 void App_Init(void);
 
-#ifdef __cplusplus
+#if defined(__cplusplus)
 }
-#endif
+#endif /* __cplusplus */
 
 #endif /* APP_APP_H__ */
