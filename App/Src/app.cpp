@@ -16,7 +16,7 @@ void Test_Task(void *pvParamaters)
 	LOGGER.LogF(&TestLoggerModule, "Started test task");
 
 	static DHT11 DHT11Test(GPIOC, 0, EXTI0_IRQn);
-	static uint32_t DHT11RxBuff[8] = {0};
+	static uint8_t DHT11RxBuff[6] = {0};
 
 	while (1)
 	{

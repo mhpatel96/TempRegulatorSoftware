@@ -32,8 +32,12 @@
 		PIN_HIGH(Port, Pin);	\
 	}
 
+#define TIMER_RESET							DWT->CYCCNT = 0
+#define TIMER_CURRENT						DWT->CYCCNT
+#define TIMER_TICKS_TO_US(Time)				((Time)/72)
+#define TIMER_US_TO_TICKS(Time)				((Time)*72)
+
 extern TIM_HandleTypeDef htim2;
-extern volatile uint32_t TickCountUs;
 
 DHT11 *DHT11::s_ActiveReader = nullptr;
 QueueHandle_t DHT11::s_Queue = nullptr;
@@ -55,19 +59,22 @@ DHT11::DHT11(GPIO_TypeDef *pPort, uint32_t Pin, IRQn_Type Interrupt) :
 		s_Queue = xQueueCreate(s_QueueLength, sizeof(DHT11*));
 	}
 
-	LOGF("Created Port %#04X Pin %4d Int %4d", (uint32_t)m_Port, m_Pin, m_InterruptChannel);
+	LOGF("%d Created", m_InterruptChannel);
 }
 
 DHT11::~DHT11()
 {
-	LOGF("Destroyed Port %#04X Pin %4d Int %4d", (uint32_t)m_Port, m_Pin, m_InterruptChannel);
+	LOGF("%d Destroyed", (uint32_t)m_Port, m_Pin, m_InterruptChannel);
 }
 
-bool DHT11::ReadBlocking(uint32_t *pRxBuff)
+bool DHT11::ReadBlocking(uint8_t *pRxBuff)
 {
-	LOGF("Blocking read %#04X Pin %4d Int %4d", (uint32_t)m_Port, m_Pin, m_InterruptChannel);
+	LOGF("%d Blocking read", m_InterruptChannel);
+
+	uint32_t StartTime = 0;
 
 	m_ReadBuffPos = 0;
+	TIMER_RESET;
 
 	RESET_PIN(m_Port, m_Pin, m_InterruptChannel);
 
@@ -77,8 +84,8 @@ bool DHT11::ReadBlocking(uint32_t *pRxBuff)
 
 	// Pull line high and wait for response
 	PIN_HIGH(m_Port, m_Pin);
-	uint32_t StartTime = TickCountUs;
-	while ((TickCountUs - StartTime) <= s_StartConditionTimeSecondaryLowUs) {}
+	StartTime = TIMER_CURRENT;
+	while ((TIMER_CURRENT - StartTime) <= TIMER_US_TO_TICKS(s_StartConditionTimeSecondaryUs)) {}
 
 	PIN_INPUT(m_Port, m_Pin);
 	while (!PIN_READ(m_Port, m_Pin)) {}
@@ -92,7 +99,7 @@ bool DHT11::ReadBlocking(uint32_t *pRxBuff)
 
 		if (PinState != PinStateOld)
 		{
-			m_ReadBuff[m_ReadBuffPos++] = TickCountUs;
+			m_ReadBuff[m_ReadBuffPos++] = TIMER_CURRENT;
 			PinStateOld = PinState;
 		}
 	}
@@ -102,9 +109,9 @@ bool DHT11::ReadBlocking(uint32_t *pRxBuff)
 	return false;
 }
 
-bool DHT11::ReadNonBlocking(void (*Callback)(uint32_t *))
+bool DHT11::ReadNonBlocking(void (*Callback)(uint8_t *))
 {
-	LOGF("Non-blocking read %#04X Pin %4d Int %4d", (uint32_t)m_Port, m_Pin, m_InterruptChannel);
+	LOGF("%d Non-blocking read", m_InterruptChannel);
 
 	m_Callback = Callback;
 
@@ -127,35 +134,78 @@ void DHT11::HandlePinInterrupt(uint32_t Time)
 	}
 }
 
-void DHT11::TransmissionComplete(uint32_t *pRxBuff)
+void DHT11::TransmissionComplete(uint8_t *pRxBuff)
 {
 	ParseResponse(pRxBuff);
 }
 
 void DHT11::TransmissionComplete(void)
 {
-	uint32_t ParsedResponse[4] = {0};
+	uint8_t ParsedResponse[5] = {0};
 	ParseResponse(ParsedResponse);
 	m_Callback(ParsedResponse);
 }
 
-bool DHT11::ParseResponse(uint32_t *pRxBuff)
+bool DHT11::ParseResponse(uint8_t *pRxBuff)
 {
-	uint32_t ErrorCount = 0, Idx = 0;
+	uint32_t ErrorCount = 0, Idx = 0, Time = 0;
+	uint64_t Result = 0;
 
-	while (Idx < s_ReadBufferSize)
+	for (Idx = 0; Idx < s_ReadBufferSize; Idx++)
 	{
-//		m_ReadBuff;
+		m_ReadBuff[Idx] = TIMER_TICKS_TO_US(m_ReadBuff[Idx]);
 	}
 
-	LOGF("Response %4d %4d %4d %4d Errors %d", pRxBuff[0], pRxBuff[1], pRxBuff[2], pRxBuff[3], ErrorCount);
+	for (Idx = 0; Idx < s_ReadBufferSize - 1; Idx++)
+	{
+		Time = m_ReadBuff[Idx + 1] - m_ReadBuff[Idx];
 
-	return (ErrorCount == 0);
+		if (Idx % 2)
+		{
+			// Odd index, expect a bit start condition
+			if ((Time >= s_RxBitStartTimeHighUs) || (Time <= s_RxBitStartTimeLowUs))
+			{
+				ErrorCount++;
+			}
+		}
+		else
+		{
+			// Even index, parse bit
+			if ((Time >= s_RxZeroTimeHighUs) || (Time <= s_RxZeroTimeLowUs))
+			{
+				// Received 0
+			}
+			else if ((Time >= s_RxOneTimeHighUs) || (Time <= s_RxOneTimeLowUs))
+			{
+				// Received 1
+				Result |= (1 << (s_NumBitsPerTransmission - (Idx / 2)));
+			}
+			else
+			{
+				ErrorCount++;
+			}
+		}
+	}
+
+	uint8_t *pTempRxBuff = (uint8_t *)&Result;
+	pRxBuff[0] = pTempRxBuff[4];
+	pRxBuff[1] = pTempRxBuff[3];
+	pRxBuff[2] = pTempRxBuff[2];
+	pRxBuff[3] = pTempRxBuff[1];
+	pRxBuff[4] = pTempRxBuff[0];
+
+	uint8_t Checksum = pRxBuff[0] + pRxBuff[1] + pRxBuff[2] + pRxBuff[3];
+
+	LOGF("%d Response %4d %4d %4d %4d %4d Check %d Errors %d", m_InterruptChannel,
+			pRxBuff[0], pRxBuff[1], pRxBuff[2], pRxBuff[3], pRxBuff[4],
+			Checksum, ErrorCount);
+
+	return ((ErrorCount == 0) && (Checksum == pRxBuff[4]));
 }
 
 void DHT11::StartTransmission(void)
 {
-	LOGF("Starting transmission");
+	LOGF("%d Starting transmission", m_InterruptChannel);
 	m_ReadBuffPos = 0;
 	PIN_LOW(m_Port, m_Pin);
 	osDelay(pdMS_TO_TICKS(s_StartConditionTimeInitialUs/1000));
@@ -169,7 +219,7 @@ void DHT11::Reset(void)
 	m_Callback = nullptr;
 	m_ReadBuffPos = 0;
 	m_State = DHT11::State::Idle;
-	LOGF("Reset");
+	LOGF("%d Reset", m_InterruptChannel);
 }
 
 extern "C" {
@@ -207,7 +257,7 @@ void DHT11_InterruptHandler(void)
 {
 	if (DHT11::s_ActiveReader != nullptr)
 	{
-		DHT11::s_ActiveReader->HandlePinInterrupt(TickCountUs);
+		DHT11::s_ActiveReader->HandlePinInterrupt(TIMER_CURRENT);
 	}
 }
 

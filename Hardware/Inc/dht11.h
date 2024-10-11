@@ -59,7 +59,7 @@ public:
 	 * @param	pRxBuff	Pointer to read buffer
 	 * @retval	true	Response is valid
 	 */
-	bool ReadBlocking(uint32_t *pRxBuff);
+	bool ReadBlocking(uint8_t *pRxBuff);
 
 	/**
 	 * @brief	Starts a non-blocking read
@@ -67,7 +67,7 @@ public:
 	 * @retval	true		Read started
 	 * @retval	false		Driver busy, read not started
 	 */
-	bool ReadNonBlocking(void (*Callback)(uint32_t *pReadBuff));
+	bool ReadNonBlocking(void (*Callback)(uint8_t *));
 
 	/**
 	 * @brief	Handles pin interrupt during a non-blocking read
@@ -83,7 +83,7 @@ public:
 	/**
 	 * @brief	Parses a response from the DHT11 and passes to callback
 	 */
-	void TransmissionComplete(uint32_t *pRxBuff);
+	void TransmissionComplete(uint8_t *pRxBuff);
 
 	/**
 	 * @brief	Parses a response from the DHT11
@@ -116,20 +116,22 @@ private:
 	uint8_t m_ReadBuffPos;
 
 	// Non-blocking read callback
-	void  (*m_Callback)(uint32_t *);
+	void  (*m_Callback)(uint8_t *);
 
 	// GPIO information
 	GPIO_TypeDef *const m_Port;
 	const uint32_t m_Pin;
 	const IRQn_Type m_InterruptChannel;
 
+	// Number of data bits in a full transmission packet
+	static constexpr size_t s_NumBitsPerTransmission = 40;
+
 	// Timing requirements
 	// Micro pulls line high for at least 18ms to start transmission
 	static constexpr uint32_t s_StartConditionTimeInitialUs = 19000;
 
 	// Then pull line high for 20-40us
-	static constexpr uint32_t s_StartConditionTimeSecondaryLowUs = 20;
-	static constexpr uint32_t s_StartConditionTimeSecondaryHighUs = 40;
+	static constexpr uint32_t s_StartConditionTimeSecondaryUs = 30;
 
 	// DHT then pulls line low for 80us, than high for 80us
 	static constexpr uint32_t s_StartConditionTimeTertiaryUs = 80;
@@ -138,16 +140,16 @@ private:
 	static constexpr uint32_t s_ErrorMarginTimeUs = 4;
 
 	// Each bit is prefixed with a 50us low
-	static constexpr uint32_t s_BitStartTimeLowUs = 50 - s_ErrorMarginTimeUs;
-	static constexpr uint32_t s_BitStartTimeHighUs = 50 + s_ErrorMarginTimeUs;
+	static constexpr uint32_t s_RxBitStartTimeLowUs = 50 - s_ErrorMarginTimeUs;
+	static constexpr uint32_t s_RxBitStartTimeHighUs = 50 + s_ErrorMarginTimeUs;
 
 	// Zero is defined as 26-28 us
-	static constexpr uint32_t s_ZeroTimeLowUs = 26 - s_ErrorMarginTimeUs;
-	static constexpr uint32_t s_ZeroTimeHighUs = 28 + s_ErrorMarginTimeUs;
+	static constexpr uint32_t s_RxZeroTimeLowUs = 26 - s_ErrorMarginTimeUs;
+	static constexpr uint32_t s_RxZeroTimeHighUs = 28 + s_ErrorMarginTimeUs;
 
 	// One is defined as 70 us
-	static constexpr uint32_t s_OneTimeLowUs = 64 - s_ErrorMarginTimeUs;
-	static constexpr uint32_t s_OneTimeHighUs = 76 + s_ErrorMarginTimeUs;
+	static constexpr uint32_t s_RxOneTimeLowUs = 64 - s_ErrorMarginTimeUs;
+	static constexpr uint32_t s_RxOneTimeHighUs = 76 + s_ErrorMarginTimeUs;
 
 	// DHT11 pulls line high for 50us to end transmission
 	static constexpr uint32_t s_EndConditionTimeUs = 50;
@@ -157,7 +159,7 @@ private:
 	 * @param	pRxBuff		Pointer to buffer to populate
 	 * @retval	true		Response is valid
 	 */
-	bool ParseResponse(uint32_t *pRxBuff);
+	bool ParseResponse(uint8_t *pRxBuff);
 };
 #endif /* __cplusplus */
 
